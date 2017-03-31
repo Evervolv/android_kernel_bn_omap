@@ -246,18 +246,11 @@ static struct regulator_init_data vaux3 = {
 	.consumer_supplies		= touch_supply,
 };
 
-
-static struct regulator_consumer_supply clk32kg_supply[] = {
-	REGULATOR_SUPPLY("clk32kg", NULL),
-};
-
 static struct regulator_init_data clk32kg = {
 	.constraints = {
 		.valid_ops_mask		= REGULATOR_CHANGE_STATUS,
-		.boot_on		= true,
+		.always_on		= true,
 	},
-	.num_consumer_supplies		= ARRAY_SIZE(clk32kg_supply),
-	.consumer_supplies		= clk32kg_supply,
 };
 
 static struct regulator_init_data clk32kaudio = {

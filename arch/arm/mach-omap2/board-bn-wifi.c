@@ -20,8 +20,8 @@
 #include <linux/skbuff.h>
 #include <linux/ti_wilink_st.h>
 #include <linux/delay.h>
+#include <linux/gpio.h>
 #include <plat/omap-serial.h>
-#include <plat/gpio.h>
 #include "board-ovation.h"
 #include "mux.h"
 
@@ -68,36 +68,6 @@ static struct platform_device vwlan_device = {
 	},
 };
 
-static struct regulator_consumer_supply wlan_vbat_supply[] = {
-	REGULATOR_SUPPLY("wlan-vbat", NULL),
-};
-
-static struct regulator_init_data wlan_vbat = {
-	.constraints = {
-		.valid_ops_mask	= REGULATOR_CHANGE_STATUS,
-	},
-	.num_consumer_supplies	= ARRAY_SIZE(wlan_vbat_supply),
-	.consumer_supplies	= wlan_vbat_supply,
-};
-
-static struct fixed_voltage_config vsys_wlan_pdata = {
-	.supply_name		= "vsys-wlan",
-	.microvolts		= 3875000, /* follows VSYS 3.50-4.25V */
-	.gpio 			= GPIO_WIFI_PWEN,
-	.startup_delay		= 200, /* 200usec */
-	.enable_high		= 1,
-	.enabled_at_boot	= 1,
-	.init_data		= &wlan_vbat,
-};
-
-static struct platform_device vsys_wlan_device = {
-	.name	= "reg-fixed-voltage",
-	.id	= 2,
-	.dev = {
-		.platform_data = &vsys_wlan_pdata,
-	},
-};
-
 /* TODO: handle suspend/resume here.
  * Upon every suspend, make sure the wilink chip is
  * capable enough to wake-up the OMAP host.
@@ -121,7 +91,12 @@ static int plat_uart_disable(void)
 	int port_id = 0;
 	int err = 0;
 	if (uart_req) {
-		sscanf(WILINK_UART_DEV_NAME, "/dev/ttyO%d", &port_id);
+		err = sscanf(WILINK_UART_DEV_NAME, "/dev/ttyO%d", &port_id);
+		if (!err) {
+			pr_err("%s: Wrong UART name: %s\n", __func__,
+				WILINK_UART_DEV_NAME);
+			return -EINVAL;
+		}
 		err = omap_serial_ext_uart_disable(port_id);
 		if (!err)
 			uart_req = false;
@@ -136,7 +111,12 @@ static int plat_uart_enable(void)
 	int port_id = 0;
 	int err = 0;
 	if (!uart_req) {
-		sscanf(WILINK_UART_DEV_NAME, "/dev/ttyO%d", &port_id);
+		err = sscanf(WILINK_UART_DEV_NAME, "/dev/ttyO%d", &port_id);
+		if (!err) {
+			pr_err("%s: Wrong UART name: %s\n", __func__,
+				WILINK_UART_DEV_NAME);
+			return -EINVAL;
+		}
 		err = omap_serial_ext_uart_enable(port_id);
 		if (!err)
 			uart_req = true;
@@ -147,42 +127,17 @@ static int plat_uart_enable(void)
 
 static bool power_enabled;
 
-void bn_wilink_set_power(bool enable)
+static void bn_wilink_set_power(bool enable)
 {
-	static struct regulator *wl12xx_clk_32k_in = NULL;
-	static struct regulator *wl12xx_vbat = NULL;
-	static struct regulator *wl12xx_vio = NULL;
-
 	if (!(enable ^ power_enabled) || uart_req) return;
 
-	if (IS_ERR_OR_NULL(wl12xx_clk_32k_in))
-		wl12xx_clk_32k_in = regulator_get(NULL, "clk32kg");
-
-	if (IS_ERR_OR_NULL(wl12xx_vio))
-		wl12xx_vio = regulator_get(NULL, "wlan-vio");
-
-	if (IS_ERR_OR_NULL(wl12xx_vbat))
-		wl12xx_vbat = regulator_get(NULL, "wlan-vbat");
-
-	if (!wl12xx_clk_32k_in || !wl12xx_vbat || !wl12xx_vio) {
-		pr_err("Failed to get wl12xx regulators\n");
-		return;
-	}
+	pr_info("%s(%i)\n", __func__, enable);
 
 	power_enabled = enable;
 
-	if (enable) {
-		pr_info("Enable wl12xx power\n");
-		regulator_enable(wl12xx_vbat);
-		regulator_enable(wl12xx_vio);
-		regulator_enable(wl12xx_clk_32k_in);
-		mdelay(100);
-	} else {
-		regulator_disable(wl12xx_clk_32k_in);
-		regulator_disable(wl12xx_vio);
-		regulator_disable(wl12xx_vbat);
-		pr_info("Disable wl12xx power\n");
-	}
+	gpio_set_value(GPIO_WIFI_PWEN, enable);
+
+	if (enable) mdelay(100);
 }
 
 static int plat_chip_enable(void)
@@ -289,7 +244,12 @@ void __init bn_wilink_init(void)
 	}
 #endif
 
-	wake_lock_init(&st_wk_lock, WAKE_LOCK_SUSPEND, "st_wake_lock");
+	/* Needed for mmc2 initialization */
+	if (unlikely(gpio_request_one(
+		GPIO_WIFI_PWEN, GPIOF_OUT_INIT_HIGH, "wifi_pwen") < 0)) {
+		pr_err("Error requesting WIFI power-en gpio (%d)\n", GPIO_WIFI_PWEN);
+		return;
+	}
 
 	if (wl12xx_set_platform_data(&wl12xx_pdata)) {
 		pr_err("Error setting wl12xx data\n");
@@ -297,7 +257,11 @@ void __init bn_wilink_init(void)
 	}
 
 	platform_device_register(&vwlan_device);
-	platform_device_register(&vsys_wlan_device);
+
+#if defined(CONFIG_TI_ST) || defined(CONFIG_TI_ST_MODULE)
+	wake_lock_init(&st_wk_lock, WAKE_LOCK_SUSPEND, "st_wake_lock");
+
 	platform_device_register(&ti_st_device);
 	platform_device_register(&btwilink_device);
+#endif
 }
