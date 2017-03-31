@@ -145,11 +145,15 @@ static int plat_uart_enable(void)
 	return err;
 }
 
+static bool power_enabled;
+
 void bn_wilink_set_power(bool enable)
 {
 	static struct regulator *wl12xx_clk_32k_in = NULL;
 	static struct regulator *wl12xx_vbat = NULL;
 	static struct regulator *wl12xx_vio = NULL;
+
+	if (!(enable ^ power_enabled) || uart_req) return;
 
 	if (IS_ERR_OR_NULL(wl12xx_clk_32k_in))
 		wl12xx_clk_32k_in = regulator_get(NULL, "clk32kg");
@@ -164,6 +168,8 @@ void bn_wilink_set_power(bool enable)
 		pr_err("Failed to get wl12xx regulators\n");
 		return;
 	}
+
+	power_enabled = enable;
 
 	if (enable) {
 		pr_info("Enable wl12xx power\n");
@@ -182,13 +188,17 @@ void bn_wilink_set_power(bool enable)
 static int plat_chip_enable(void)
 {
 	bn_wilink_set_power(true);
+
 	return plat_uart_enable();
 }
 
 static int plat_chip_disable(void)
 {
+	int err = plat_uart_disable();
+
 	bn_wilink_set_power(false);
-	return plat_uart_disable();
+
+	return err;
 }
 
 /* wl2xx WiFi platform data */
