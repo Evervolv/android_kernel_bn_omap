@@ -139,7 +139,7 @@ static void bn_wilink_set_power(bool enable)
 
 	gpio_set_value(GPIO_WIFI_PWEN, enable);
 
-	if (enable) mdelay(100);
+	if (enable) udelay(800);
 }
 
 static int plat_chip_enable(void)
