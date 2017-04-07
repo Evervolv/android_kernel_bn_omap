@@ -125,15 +125,17 @@ static int plat_uart_enable(void)
 	return err;
 }
 
-static bool power_enabled;
+static signed char power_count = 0;
 
 static void bn_wilink_set_power(bool enable)
 {
-	if (!(enable ^ power_enabled) || uart_req) return;
+	power_count += enable ? 1 : -1;
+
+	pr_info("%s: power_count = %d\n", __func__, power_count);
+
+	if (power_count != enable) return;
 
 	pr_info("%s(%i)\n", __func__, enable);
-
-	power_enabled = enable;
 
 	gpio_set_value(GPIO_WIFI_PWEN, enable);
 
