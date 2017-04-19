@@ -22,6 +22,7 @@
 #include <linux/delay.h>
 #include <linux/gpio.h>
 #include <plat/omap-serial.h>
+#include <plat/mmc.h>
 #include "board-ovation.h"
 #include "mux.h"
 
@@ -164,7 +165,7 @@ static struct wl12xx_platform_data wl12xx_pdata = {
 	.irq_trigger = IRQF_TRIGGER_HIGH,
 	.ref_clock_freq = 38400000,
 	.tcxo_clock_freq = 38400000,
-	.set_power = bn_wilink_set_power,
+	//.set_power = bn_wilink_set_power,
 };
 
 /* wl12xx BT platform data */
@@ -215,8 +216,25 @@ static void __init bn_wilink_mux_init(int gpio_irq, int gpio_pmena)
 				OMAP_MUX_MODE1 | OMAP_PIN_INPUT_PULLUP);
 }
 
-void __init bn_wilink_init(void)
+static inline void bn_before_set_reg(struct device *dev, int slot, int on, int vdd)
 {
+	if (on) bn_wilink_set_power(on);
+}
+
+static inline void bn_after_set_reg(struct device *dev, int slot, int on, int vdd)
+{
+	if (!on) bn_wilink_set_power(on);
+}
+
+void __init bn_wilink_init(struct device *dev)
+{
+	struct omap_mmc_platform_data *pdata = dev->platform_data;
+
+	if (!pdata) {
+		pr_err("Platform data of wl12xx device not set\n");
+		return;
+	}
+
 #if defined(CONFIG_MACH_OMAP_HUMMINGBIRD)
 	pr_info("Using Hummingbird wifi configuration\n");
 	bn_wilink_mux_init(GPIO_WIFI_IRQ_EVT1A, GPIO_WIFI_PMENA_EVT1A);
@@ -253,6 +271,12 @@ void __init bn_wilink_init(void)
 		pr_err("Error requesting WIFI power-en gpio (%d)\n", GPIO_WIFI_PWEN);
 		return;
 	}
+
+	/* These should be NULL for MMC 3/4/5 */
+	if (!pdata->slots[0].before_set_reg)
+		pdata->slots[0].before_set_reg = bn_before_set_reg;
+	if (!pdata->slots[0].after_set_reg)
+		pdata->slots[0].after_set_reg = bn_after_set_reg;
 
 	if (wl12xx_set_platform_data(&wl12xx_pdata)) {
 		pr_err("Error setting wl12xx data\n");
