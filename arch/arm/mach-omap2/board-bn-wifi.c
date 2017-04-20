@@ -216,14 +216,24 @@ static void __init bn_wilink_mux_init(int gpio_irq, int gpio_pmena)
 				OMAP_MUX_MODE1 | OMAP_PIN_INPUT_PULLUP);
 }
 
+static void (*hsmmc3_before_set_reg)(struct device *dev, int slot, int on, int vdd);
+
 static inline void bn_before_set_reg(struct device *dev, int slot, int on, int vdd)
 {
+	if (hsmmc3_before_set_reg)
+		hsmmc3_before_set_reg(dev, slot, on, vdd);
+
 	if (on) bn_wilink_set_power(on);
 }
+
+static void (*hsmmc3_after_set_reg)(struct device *dev, int slot, int on, int vdd);
 
 static inline void bn_after_set_reg(struct device *dev, int slot, int on, int vdd)
 {
 	if (!on) bn_wilink_set_power(on);
+
+	if (hsmmc3_after_set_reg)
+		hsmmc3_after_set_reg(dev, slot, on, vdd);
 }
 
 void __init bn_wilink_init(struct device *dev)
@@ -272,11 +282,11 @@ void __init bn_wilink_init(struct device *dev)
 		return;
 	}
 
-	/* These should be NULL for MMC 3/4/5 */
-	if (!pdata->slots[0].before_set_reg)
-		pdata->slots[0].before_set_reg = bn_before_set_reg;
-	if (!pdata->slots[0].after_set_reg)
-		pdata->slots[0].after_set_reg = bn_after_set_reg;
+	hsmmc3_before_set_reg = pdata->slots[0].before_set_reg;
+	pdata->slots[0].before_set_reg = bn_before_set_reg;
+
+	hsmmc3_after_set_reg = pdata->slots[0].after_set_reg;
+	pdata->slots[0].after_set_reg = bn_after_set_reg;
 
 	if (wl12xx_set_platform_data(&wl12xx_pdata)) {
 		pr_err("Error setting wl12xx data\n");
